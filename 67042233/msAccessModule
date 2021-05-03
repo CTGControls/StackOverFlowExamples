@@ -1,0 +1,153 @@
+Option Compare Database
+Option Explicit
+
+Public Sub sub_googleSearch()
+On Error GoTo err_stan
+'DESCRIPTION
+'loop a table of company-names and do a google-news-search for every company-name
+'and write the header and date of the news-articles into a table.
+
+'DEFINITION
+    Dim str_google      As String
+    Dim el2             As New HTMLDocument
+    Dim el3             As New HTMLDocument
+    Dim el4             As New HTMLDocument
+    Dim el              As New HTMLDocument
+    Dim http            As Object
+    Dim html            As New HTMLDocument
+    Dim db              As DAO.Database
+    Dim rs_companies    As DAO.Recordset
+    Dim rs_news         As DAO.Recordset
+    Dim str_responseText As String
+    
+'DECLARATION
+    Set db = CurrentDb
+    Set rs_companies = db.OpenRecordset("SELECT DISTINCT companyName FROM qGoogleSearch")
+    Set rs_news = db.OpenRecordset("SELECT * FROM Tnews")
+    Set http = CreateObject("MSXML2.XMLHTTP")
+
+'ALGORITHM
+    rs_companies.MoveFirst
+    Do While Not rs_companies.EOF
+    
+        str_google = "https://www.google.com/search?q=" & _
+                    Replace(rs_companies.Fields("companyName").Value, " ", "+") & _
+                    "&tbm=nws"
+        str_google = "https://www.google.com/search?q=bango+plc&tbm=nws" 'for testing
+        
+        
+        mMain.http "GET", str_google, "text/html; charset=UTF-8", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9", "", str_responseText
+        html.body.innerHTML = str_responseText
+        
+        
+        Set el = html.getElementById("rso")
+        'the rso-element consists of the search results. i would expect 10 elements because i get 10 results per page when i google manualy with my browser.
+        'but here i only get 5 elements and they seem empty.
+        
+        'For Each el2 In el.getElementsByTagName("a")'original
+        For Each el2 In el.getElementsByTagName("*") 'for testing
+        
+            'here i am looking for the header-text and date of the news-article
+            For Each el3 In el2.getElementsByClassName("hI5pFf")
+                
+                rs_news.AddNew
+                rs_news!companyName = rs_companies.Fields("companyName").Value
+                rs_news!news = "googleSearch"
+                rs_news!link = str_google
+                For Each el4 In el3.getElementsByTagName("div")
+                    If el4.getAttribute("class") = "JheGif jBgGLd" Then
+                        'header
+                        rs_news!header = el4.body.innerText
+                    End If
+                    If el4.getAttribute("class") = "Y3v8qd" Then
+                        'subHeader
+                        rs_news!header = el4.body.innerText
+                    End If
+                    If el4.getAttribute("class") = "wxp1Sb" Then
+                        'date
+                        rs_news!header = el4.body.innerText
+                    End If
+                Next el4
+                rs_news.Update
+                
+            Next el3
+        Next el2
+        
+    rs_companies.MoveNext
+    Loop
+    
+    MsgBox ("finished googleSearch")
+err_stan:
+    If Err.Number <> 0 Then
+        MsgBox (Err.Number & ": " & Err.Description)
+    End If
+
+'CLOSING
+    If Not rs_news Is Nothing Then rs_news.Close
+    If Not rs_companies Is Nothing Then rs_companies.Close
+    Set rs_news = Nothing
+    Set rs_companies = Nothing
+    Set db = Nothing
+End Sub
+
+
+
+
+
+
+Function http(httpCommand, sUrl, sRequestHeaderContentType, sRequestHeaderAccept, sbody, str_responseText)
+        Err.Clear
+        Dim oXML 'AS XMLHTTP60
+        'Set oXML = CreateObject("msxml2.XMLHTTP.6.0")
+        Set oXML = CreateObject("Msxml2.ServerXMLHTTP.6.0")
+        Dim aErr
+        
+    On Error Resume Next
+        Call oXML.Open(CStr(httpCommand), CStr(sUrl), False)
+        'oXML.setRequestHeader "User-Agent", "Mozilla/4.0"
+        oXML.setRequestHeader "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36"
+        'oXML.setRequestHeader "Authorization", "Basic base64encodeduserandpassword"
+        oXML.setRequestHeader "Content-Type", CStr(sRequestHeaderContentType)
+        'oXML.setRequestHeader "Content-Type", "text/xml"
+        oXML.setRequestHeader "CharSet", "charset=UTF-8"
+        'oXML.setRequestHeader "Accept", "*/*"
+        oXML.setRequestHeader "Accept", CStr(sRequestHeaderAccept)
+        oXML.setRequestHeader "cache-control", "no-cache"
+        oXML.setRequestHeader "sec-ch-ua", "Google Chrome;v=89, Chromium;v=89, ;Not A Brand;v=99"
+        
+        aErr = Array(Err.Number, Err.Description)
+
+    On Error GoTo 0
+         If 0 = aErr(0) Then
+    On Error Resume Next
+                Call oXML.send(sbody)
+                aErr = Array(Err.Number, Err.Description)
+    On Error GoTo 0
+                Select Case True
+                    Case 0 <> aErr(0)
+                        Trace ("send failed: " & CStr(aErr(0)) & " " & CStr(aErr(1)))
+                    Case 200 = oXML.status
+                        'Trace(sUrl & "    HttpStatusCode:" & oXML.status & "    HttpStatusText:" & oXML.statusText)
+                        http = oXML.responseText
+                    Case 201 = oXML.status
+                        Trace (sUrl & "    HttpStatusCode:" & oXML.status & "    HttpStatusText:" & oXML.statusText)
+                    Case Else
+                        Trace ("further work needed:")
+                        Trace ("URL:" & CStr(sUrl) & "      Message Status:" & CStr(oXML.status) & "      Message Text:" & CStr(oXML.statusText))
+                        Trace ("further work needed:")
+                End Select
+        Else
+            Trace ("open failed: " & CStr(aErr(0)) & " " & CStr(aErr(1)))
+        End If
+    
+    'httpPost.HttpStatusCode = CStr(oXML.status)
+    'httpPost.HttpStatusText = CStr(oXML.statusText)
+    'httpPost.responseText = CStr(oXML.responseText)
+    str_responseText = oXML.responseText
+    Set oXML = Nothing
+End Function
+
+Function Trace(Message1)
+    MsgBox (Message1)
+End Function
+
